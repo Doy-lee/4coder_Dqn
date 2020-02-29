@@ -68,6 +68,20 @@ CUSTOM_DOC("Use Vim edit mode key-bindings")
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr /*buffer_id*/);
 }
 
+CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToPreviousToken)
+CUSTOM_DOC("Seek left to the next closest token.")
+{
+    Scratch_Block scratch(app);
+    current_view_scan_move(app, Scan_Backward, push_boundary_list(scratch, boundary_token));
+}
+
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToNextToken)
+CUSTOM_DOC("Seek right to the next closest token.")
+{
+    Scratch_Block scratch(app);
+    current_view_scan_move(app, Scan_Forward, push_boundary_list(scratch, boundary_token));
+}
 
 FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
 {
@@ -89,6 +103,8 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(page_down, KeyCode_D, KeyCode_Control);
 
         Bind(Dqn4Vim_UseEditModeBindings, KeyCode_I);
+        Bind(Dqn4Vim_MoveToNextToken, KeyCode_W);
+        Bind(Dqn4Vim_MoveToPreviousToken, KeyCode_B);
     }
 
     SelectMap(Dqn4Coder_MappingID_VimEditMode);
