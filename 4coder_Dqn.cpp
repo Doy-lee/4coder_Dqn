@@ -83,6 +83,20 @@ CUSTOM_DOC("Seek right to the next closest token.")
     current_view_scan_move(app, Scan_Forward, push_boundary_list(scratch, boundary_token));
 }
 
+CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToStartOfLine)
+CUSTOM_DOC("Seek to the start of the line.")
+{
+    Scratch_Block scratch(app);
+    current_view_scan_move(app, Scan_Backward, push_boundary_list(scratch, boundary_line));
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToEndOfLine)
+CUSTOM_DOC("Seek to the end of the line.")
+{
+    Scratch_Block scratch(app);
+    current_view_scan_move(app, Scan_Forward, push_boundary_list(scratch, boundary_line));
+}
+
 FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
 {
     setup_default_mapping(mapping, mapid_global, mapid_file, mapid_code);
@@ -105,6 +119,9 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(Dqn4Vim_UseEditModeBindings, KeyCode_I);
         Bind(Dqn4Vim_MoveToNextToken, KeyCode_W);
         Bind(Dqn4Vim_MoveToPreviousToken, KeyCode_B);
+
+        Bind(Dqn4Vim_MoveToStartOfLine, KeyCode_6, KeyCode_Shift);
+        Bind(Dqn4Vim_MoveToEndOfLine, KeyCode_4, KeyCode_Shift);
     }
 
     SelectMap(Dqn4Coder_MappingID_VimEditMode);
