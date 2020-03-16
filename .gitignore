@@ -1,0 +1,17 @@
+.vs
+*.exe
+*.pdb
+*.dll
+bin
+tags
+
+/README.txt
+/changes.txt
+/LICENSE.txt
+/fonts
+/project.4coder
+/themes
+/custom/*.*
+/custom/generated
+/custom/languages
+/custom/lexer_generator
