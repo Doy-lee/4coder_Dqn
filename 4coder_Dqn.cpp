@@ -11,7 +11,7 @@
 
 // NOTE(allen): Users can declare their own managed IDs here.
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalMode);
-CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimEditMode);
+i64 Dqn4Coder_MappingID_VimEditMode = 0;
 
 #include "generated/managed_id_metadata.cpp"
 
@@ -23,8 +23,8 @@ struct Dqn4State
 };
 FILE_SCOPE Dqn4State dqn_state;
 
-FILE_SCOPE void
-Dqn4Coder_SetCursorColour(Application_Links* app, int colour) {
+FILE_SCOPE void Dqn4Coder_SetCursorColour(Application_Links *app, int colour)
+{
     Color_Table *table             = &active_color_table;
     Arena *arena                   = &global_theme_arena;
     table->arrays[defcolor_cursor] = make_colors(arena, colour);
@@ -97,38 +97,118 @@ CUSTOM_DOC("Seek to the end of the line.")
     current_view_scan_move(app, Scan_Forward, push_boundary_list(scratch, boundary_line));
 }
 
+CUSTOM_COMMAND_SIG(Dqn4Vim_NewLineThenEditMode)
+CUSTOM_DOC("Add new line and enter insert mode")
+{
+    seek_pos_of_visual_line(app, Side_Max);
+    write_string(app, string_u8_litexpr("\n"));
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr);
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_AppendOneAfterCursor)
+CUSTOM_DOC("Enter insert mode one character after the cursor")
+{
+    // TODO(doyle): Vim behaviour is to return the cursor 1 character back after
+    // insertion. Test what feels better.
+    View_ID view = get_active_view(app, Access_ReadVisible);
+    view_set_cursor_by_character_delta(app, view, 1);
+    no_mark_snap_to_cursor_if_shift(app, view);
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr);
+}
+
 FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
 {
+    Dqn4Coder_MappingID_VimEditMode = mapid_code;
     setup_default_mapping(mapping, mapid_global, mapid_file, mapid_code);
 
     MappingScope();
     SelectMapping(mapping);
+
     SelectMap(Dqn4Coder_MappingID_VimNormalMode);
     {
         ParentMap(mapid_global);
+        BindMouse(click_set_cursor_and_mark, MouseCode_Left);
+        BindMouseRelease(click_set_cursor, MouseCode_Left);
+        BindCore(click_set_cursor_and_mark, CoreCode_ClickActivateView);
+        BindMouseMove(click_set_cursor_if_lbutton);
+
         Bind(move_up, KeyCode_K);
         Bind(move_down, KeyCode_J);
         Bind(move_left, KeyCode_H);
         Bind(move_right, KeyCode_L);
-
-        Bind(redo, KeyCode_R);
-        Bind(undo, KeyCode_U);
         Bind(page_up, KeyCode_U, KeyCode_Control);
         Bind(page_down, KeyCode_D, KeyCode_Control);
 
+        Bind(redo, KeyCode_R);
+        Bind(undo, KeyCode_U);
+        Bind(search, KeyCode_ForwardSlash);
+        Bind(search_identifier, KeyCode_ForwardSlash, KeyCode_Control);
+
+        // TODO(doyle): Better delete mode
+        Bind(delete_line, KeyCode_D);
+        Bind(delete_char, KeyCode_X);
+
+        Bind(interactive_open_or_new, KeyCode_O, KeyCode_Control);
+        Bind(Dqn4Vim_NewLineThenEditMode, KeyCode_O);
         Bind(Dqn4Vim_UseEditModeBindings, KeyCode_I);
+        Bind(Dqn4Vim_AppendOneAfterCursor, KeyCode_A);
+
         Bind(Dqn4Vim_MoveToNextToken, KeyCode_W);
         Bind(Dqn4Vim_MoveToPreviousToken, KeyCode_B);
 
         Bind(Dqn4Vim_MoveToStartOfLine, KeyCode_6, KeyCode_Shift);
         Bind(Dqn4Vim_MoveToEndOfLine, KeyCode_4, KeyCode_Shift);
+
+        // TODO(doyle): Changing panels should really be moving to the split in
+        // the direction of the home movement keys. Not just cycling through all
+        // panels
+        Bind(change_active_panel,                           KeyCode_L, KeyCode_Control);
+        Bind(change_active_panel_backwards,                 KeyCode_H, KeyCode_Control);
+        Bind(interactive_kill_buffer,                       KeyCode_K, KeyCode_Control);
+        Bind(interactive_switch_buffer,                     KeyCode_I, KeyCode_Control);
+        Bind(command_lister,                                KeyCode_X, KeyCode_Alt);
+        Bind(list_all_locations_of_identifier,              KeyCode_T, KeyCode_Control, KeyCode_Shift);
+        Bind(list_all_locations,                            KeyCode_F, KeyCode_Control, KeyCode_Shift);
+        Bind(list_all_substring_locations_case_insensitive, KeyCode_F, KeyCode_Alt);
     }
 
     SelectMap(Dqn4Coder_MappingID_VimEditMode);
     {
-        ParentMap(mapid_code);
+        ParentMap(mapid_global);
         Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_Escape);
         Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_CapsLock);
+
+        // NOTE: Copied from setup_default_mapping
+        BindTextInput(write_text_and_auto_indent);
+        Bind(move_left_alpha_numeric_boundary,           KeyCode_Left, KeyCode_Control);
+        Bind(move_right_alpha_numeric_boundary,          KeyCode_Right, KeyCode_Control);
+        Bind(move_left_alpha_numeric_or_camel_boundary,  KeyCode_Left, KeyCode_Alt);
+        Bind(move_right_alpha_numeric_or_camel_boundary, KeyCode_Right, KeyCode_Alt);
+        Bind(comment_line_toggle,        KeyCode_Semicolon, KeyCode_Control);
+        Bind(word_complete,              KeyCode_Tab);
+        Bind(auto_indent_range,          KeyCode_Tab, KeyCode_Control);
+        Bind(auto_indent_line_at_cursor, KeyCode_Tab, KeyCode_Shift);
+        Bind(word_complete_drop_down,    KeyCode_Tab, KeyCode_Shift, KeyCode_Control);
+        Bind(write_block,                KeyCode_R, KeyCode_Alt);
+        Bind(write_todo,                 KeyCode_T, KeyCode_Alt);
+        Bind(write_note,                 KeyCode_Y, KeyCode_Alt);
+        Bind(list_all_locations_of_type_definition,               KeyCode_D, KeyCode_Alt);
+        Bind(list_all_locations_of_type_definition_of_identifier, KeyCode_T, KeyCode_Alt, KeyCode_Shift);
+        Bind(open_long_braces,           KeyCode_LeftBracket, KeyCode_Control);
+        Bind(open_long_braces_semicolon, KeyCode_LeftBracket, KeyCode_Control, KeyCode_Shift);
+        Bind(open_long_braces_break,     KeyCode_RightBracket, KeyCode_Control, KeyCode_Shift);
+        Bind(select_surrounding_scope,   KeyCode_LeftBracket, KeyCode_Alt);
+        Bind(select_surrounding_scope_maximal, KeyCode_LeftBracket, KeyCode_Alt, KeyCode_Shift);
+        Bind(select_prev_scope_absolute, KeyCode_RightBracket, KeyCode_Alt);
+        Bind(select_prev_top_most_scope, KeyCode_RightBracket, KeyCode_Alt, KeyCode_Shift);
+        Bind(select_next_scope_absolute, KeyCode_Quote, KeyCode_Alt);
+        Bind(select_next_scope_after_current, KeyCode_Quote, KeyCode_Alt, KeyCode_Shift);
+        Bind(place_in_scope,             KeyCode_ForwardSlash, KeyCode_Alt);
+        Bind(delete_current_scope,       KeyCode_Minus, KeyCode_Alt);
+        Bind(if0_off,                    KeyCode_I, KeyCode_Alt);
+        Bind(open_file_in_quotes,        KeyCode_1, KeyCode_Alt);
+        Bind(open_matching_file_cpp,     KeyCode_2, KeyCode_Alt);
+        Bind(write_zero_struct,          KeyCode_0, KeyCode_Control);
     }
 }
 
@@ -191,7 +271,7 @@ void Dqn4Coder_DrawFileBar(Application_Links *app, View_ID view_id, Buffer_ID bu
     draw_fancy_line(app, face_id, fcolor_zero(), &list, p);
 }
 
-void Dqn4Coder_HookRenderCall(Application_Links *app, Frame_Info frame_info, View_ID view_id){
+void Dqn4Coder_DefaultRenderCaller(Application_Links *app, Frame_Info frame_info, View_ID view_id){
     ProfileScope(app, __func__);
     View_ID active_view = get_active_view(app, Access_Always);
     b32 is_active_view = (active_view == view_id);
@@ -286,20 +366,14 @@ BUFFER_HOOK_SIG(Dqn4Coder_HookBufferBegin)
 void Dqn4Coder_HookDefaults(Application_Links *app)
 {
     set_custom_hook(app, HookID_BeginBuffer, Dqn4Coder_HookBufferBegin);
-    set_custom_hook(app, HookID_RenderCaller, Dqn4Coder_HookRenderCall);
+    set_custom_hook(app, HookID_RenderCaller, Dqn4Coder_DefaultRenderCaller);
 }
 
 void custom_layer_init(Application_Links *app){
     Thread_Context *tctx = get_thread_context(app);
 
     // NOTE(allen): setup for default framework
-    async_task_handler_init(app, &global_async_system);
-    code_index_init();
-    buffer_modified_set_init();
-    Profile_Global_List *list = get_core_profile_list(app);
-    ProfileThreadName(tctx, list, string_u8_litexpr("main"));
-    initialize_managed_id_metadata(app);
-    set_default_color_scheme(app);
+    default_framework_init(app);
 
     // NOTE(allen): default hooks and command maps
     set_all_default_hooks(app);
