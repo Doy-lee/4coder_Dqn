@@ -1,0 +1,40 @@
+version(1);
+project_name = "Dqn4Coder Custom Layer";
+
+patterns = {
+"*.c",
+"*.cpp",
+"*.h",
+"*.m",
+"*.mm",
+"*.bat",
+"*.sh",
+"*.4coder",
+"*.txt",
+};
+blacklist_patterns = {
+".*",
+};
+load_paths_custom = {
+ {"."},
+};
+load_paths = {
+ { load_paths_custom, .os = "win"  },
+ { load_paths_custom, .os = "linux"},
+ { load_paths_custom, .os = "mac"  },
+};
+
+build_windows = "build-windows.bat";
+build_linux   = "build-linux.sh";
+command_list =
+{
+ {
+   .name = "Build",
+   .out = "*compilation*", footer_panel = true, .save_dirty_files = true,
+   .cmd = {{build_windows, .os ="win"  },
+           {build_linux,   .os ="linux"},
+           {"",            .os ="mac"},},
+ },
+};
+
+fkey_command[1] = "Build";
