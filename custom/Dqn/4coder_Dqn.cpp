@@ -11,18 +11,21 @@
 
 // NOTE(allen): Users can declare their own managed IDs here.
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalMode);
-CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimLowerCKeyModifierMode);
+CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalModeChordWithKeyCodeC);
+CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalModeChordWithKeyCodeT);
 i64 Dqn4Coder_MappingID_VimEditMode = 0;
 
 #include "generated/managed_id_metadata.cpp"
 
 #define FILE_SCOPE static
 
-struct Dqn4State
+struct Core
 {
-    b32 normal_mode;
+    b32           normal_mode;
+    History_Group history_group;
+    b32           history_group_started;
 };
-FILE_SCOPE Dqn4State dqn_state;
+FILE_SCOPE Core core;
 
 FILE_SCOPE void Dqn4Coder_SetCursorColour(Application_Links *app, int colour)
 {
@@ -45,15 +48,32 @@ FILE_SCOPE void Dqn4Coder_SetCurrentMapping(Application_Links *app, Command_Map_
     Command_Map_ID *map_id_ptr = scope_attachment(app, scope, buffer_map_id, Command_Map_ID);
     *map_id_ptr                = map_id;
 
-    if (map_id == (Command_Map_ID)Dqn4Coder_MappingID_VimNormalMode)
+    if (map_id == (Command_Map_ID)Dqn4Coder_MappingID_VimNormalMode ||
+        map_id == (Command_Map_ID)Dqn4Coder_MappingID_VimEditMode ||
+        map_id == (Command_Map_ID)Dqn4Coder_MappingID_VimNormalModeChordWithKeyCodeC
+        )
     {
-        dqn_state.normal_mode = true;
-        Dqn4Coder_SetCursorColour(app, 0xFFFF0000 /*ARGB*/);
-    }
-    else if (map_id == (Command_Map_ID)Dqn4Coder_MappingID_VimEditMode)
-    {
-        dqn_state.normal_mode = false;
-        Dqn4Coder_SetCursorColour(app, 0xFF00FF00 /*ARGB*/);
+        core.normal_mode = map_id == (Command_Map_ID)Dqn4Coder_MappingID_VimNormalMode;
+        if (core.normal_mode)
+        {
+            if (core.history_group_started)
+            {
+                history_group_end(core.history_group);
+                core.history_group_started = false;
+            }
+            Dqn4Coder_SetCursorColour(app, 0xFFFF0000 /*ARGB*/);
+        }
+        else
+        {
+            if (!core.history_group_started)
+            {
+                core.history_group_started = true;
+                core.history_group         = history_group_begin(app, *buffer_id);
+            }
+
+            if (map_id == (Command_Map_ID)Dqn4Coder_MappingID_VimEditMode)
+                Dqn4Coder_SetCursorColour(app, 0xFF00FF00 /*ARGB*/);
+        }
     }
 }
 
@@ -72,7 +92,7 @@ CUSTOM_DOC("Use Vim edit mode key-bindings")
 CUSTOM_COMMAND_SIG(Dqn4Vim_UseLowerCKeyModeBindings)
 CUSTOM_DOC("Use Vim normal mode, bindings when c is pressed.")
 {
-    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimLowerCKeyModifierMode, nullptr);
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimNormalModeChordWithKeyCodeC, nullptr);
 }
 
 CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToPreviousToken)
@@ -116,8 +136,8 @@ CUSTOM_DOC("Add new line and enter insert mode.")
 {
     seek_pos_of_visual_line(app, Side_Min);
     write_string(app, string_u8_litexpr("\n"));
-View_ID view = get_active_view(app, Access_ReadVisible);
-view_set_cursor_by_character_delta(app, view, -1);
+    View_ID view = get_active_view(app, Access_ReadVisible);
+    view_set_cursor_by_character_delta(app, view, -1);
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr);
 }
 
@@ -158,6 +178,31 @@ CUSTOM_DOC("Delete from the current to the next token then enter edit mode.")
 
     buffer_replace_range(app, buffer, range, string_u8_empty);
     Dqn4Vim_UseEditModeBindings(app);
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_VimNormalModeChordWithKeyCodeT)
+{
+    User_Input user_input = get_current_input(app);
+    String_Const_u8 input = to_writable(&user_input);
+    if (input.str != 0 && input.size > 0)
+    {
+        View_ID view     = get_active_view(app, Access_ReadVisible);
+        Buffer_ID buffer = view_get_buffer(app, view, Access_ReadWriteVisible);
+        i64 start_pos    = view_get_cursor_pos(app, view);
+        i64 find_pos     = 0;
+        seek_string_forward(app, buffer, start_pos, 0 /*end*/, input, &find_pos);
+
+        Range_i64 range     = {};
+        range.first         = start_pos;
+        range.one_past_last = find_pos;
+        buffer_replace_range(app, buffer, range, string_u8_empty);
+        Dqn4Vim_UseEditModeBindings(app);
+    }
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_NormalModeKeyCodeCThenT)
+{
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimNormalModeChordWithKeyCodeT, nullptr /*buffer_id*/);
 }
 
 FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
@@ -202,7 +247,7 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(Dqn4Vim_UseEditModeBindings, KeyCode_I);
         Bind(Dqn4Vim_AppendOneAfterCursor, KeyCode_A);
         Bind(Dqn4Vim_ReplaceAtCursorThenEditMode, KeyCode_S);
-Bind(Dqn4Vim_UseLowerCKeyModeBindings, KeyCode_C);
+        Bind(Dqn4Vim_UseLowerCKeyModeBindings, KeyCode_C);
 
         Bind(Dqn4Vim_MoveToNextToken, KeyCode_W);
         Bind(Dqn4Vim_MoveToPreviousToken, KeyCode_B);
@@ -262,12 +307,21 @@ Bind(Dqn4Vim_UseLowerCKeyModeBindings, KeyCode_C);
         Bind(write_zero_struct,          KeyCode_0, KeyCode_Control);
     }
 
-    SelectMap(Dqn4Coder_MappingID_VimLowerCKeyModifierMode);
+    SelectMap(Dqn4Coder_MappingID_VimNormalModeChordWithKeyCodeC);
     {
         ParentMap(mapid_global);
         Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_Escape);
         Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_CapsLock);
         Bind(Dqn4Vim_DeleteToNextTokenThenEditMode, KeyCode_W);
+        Bind(Dqn4Vim_NormalModeKeyCodeCThenT, KeyCode_T);
+    }
+
+    SelectMap(Dqn4Coder_MappingID_VimNormalModeChordWithKeyCodeT);
+    {
+        ParentMap(mapid_global);
+        Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_Escape);
+        Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_CapsLock);
+        BindTextInput(Dqn4Vim_VimNormalModeChordWithKeyCodeT);
     }
 }
 
@@ -324,7 +378,7 @@ void Dqn4Coder_DrawFileBar(Application_Links *app, View_ID view_id, Buffer_ID bu
     }
 
     push_fancy_string(scratch, &list, base_color, string_u8_litexpr(" - "));
-    push_fancy_string(scratch, &list, base_color, dqn_state.normal_mode ? string_u8_litexpr("NORMAL Mode") : string_u8_litexpr("EDIT Mode"));
+    push_fancy_string(scratch, &list, base_color, core.normal_mode ? string_u8_litexpr("NORMAL Mode") : string_u8_litexpr("EDIT Mode"));
 
     Vec2_f32 p = bar.p0 + V2f32(2.f, 2.f);
     draw_fancy_line(app, face_id, fcolor_zero(), &list, p);
@@ -415,7 +469,7 @@ void Dqn4Coder_DefaultRenderCaller(Application_Links *app, Frame_Info frame_info
 // Dqn4Coder_Hook
 //
 // -------------------------------------------------------------------------------------------------
-BUFFER_HOOK_SIG(Dqn4Coder_HookBufferBegin)
+BUFFER_HOOK_SIG(Dqn4Coder_DefaultBeginBuffer)
 {
     default_begin_buffer(app, buffer_id);
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimNormalMode, &buffer_id);
@@ -424,7 +478,7 @@ BUFFER_HOOK_SIG(Dqn4Coder_HookBufferBegin)
 
 void Dqn4Coder_HookDefaults(Application_Links *app)
 {
-    set_custom_hook(app, HookID_BeginBuffer, Dqn4Coder_HookBufferBegin);
+    set_custom_hook(app, HookID_BeginBuffer, Dqn4Coder_DefaultBeginBuffer);
     set_custom_hook(app, HookID_RenderCaller, Dqn4Coder_DefaultRenderCaller);
 }
 
