@@ -11,6 +11,7 @@
 
 // NOTE(allen): Users can declare their own managed IDs here.
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalMode);
+CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimLowerCKeyModifierMode);
 i64 Dqn4Coder_MappingID_VimEditMode = 0;
 
 #include "generated/managed_id_metadata.cpp"
@@ -68,13 +69,18 @@ CUSTOM_DOC("Use Vim edit mode key-bindings")
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr /*buffer_id*/);
 }
 
+CUSTOM_COMMAND_SIG(Dqn4Vim_UseLowerCKeyModeBindings)
+CUSTOM_DOC("Use Vim normal mode, bindings when c is pressed.")
+{
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimLowerCKeyModifierMode, nullptr);
+}
+
 CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToPreviousToken)
 CUSTOM_DOC("Seek left to the next closest token.")
 {
     Scratch_Block scratch(app);
     current_view_scan_move(app, Scan_Backward, push_boundary_list(scratch, boundary_token));
 }
-
 
 CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToNextToken)
 CUSTOM_DOC("Seek right to the next closest token.")
@@ -98,15 +104,25 @@ CUSTOM_DOC("Seek to the end of the line.")
 }
 
 CUSTOM_COMMAND_SIG(Dqn4Vim_NewLineThenEditMode)
-CUSTOM_DOC("Add new line and enter insert mode")
+CUSTOM_DOC("Add new line and enter insert mode.")
 {
     seek_pos_of_visual_line(app, Side_Max);
     write_string(app, string_u8_litexpr("\n"));
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr);
 }
 
+CUSTOM_COMMAND_SIG(Dqn4Vim_PrependNewLineThenEditMode)
+CUSTOM_DOC("Add new line and enter insert mode.")
+{
+    seek_pos_of_visual_line(app, Side_Min);
+    write_string(app, string_u8_litexpr("\n"));
+View_ID view = get_active_view(app, Access_ReadVisible);
+view_set_cursor_by_character_delta(app, view, -1);
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr);
+}
+
 CUSTOM_COMMAND_SIG(Dqn4Vim_AppendOneAfterCursor)
-CUSTOM_DOC("Enter insert mode one character after the cursor")
+CUSTOM_DOC("Enter insert mode one character after the cursor.")
 {
     // TODO(doyle): Vim behaviour is to return the cursor 1 character back after
     // insertion. Test what feels better.
@@ -114,6 +130,34 @@ CUSTOM_DOC("Enter insert mode one character after the cursor")
     view_set_cursor_by_character_delta(app, view, 1);
     no_mark_snap_to_cursor_if_shift(app, view);
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr);
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_ReplaceAtCursorThenEditMode)
+CUSTOM_DOC("Delete the character at the cursor then enter edit mode.")
+{
+    delete_char(app);
+    View_ID view = get_active_view(app, Access_ReadVisible);
+    no_mark_snap_to_cursor_if_shift(app, view);
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr);
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_DeleteToNextTokenThenEditMode)
+CUSTOM_DOC("Delete from the current to the next token then enter edit mode.")
+{
+    // TODO(doyle): Slightly wrong, MoveToNextToken() ignores comments
+    View_ID view = get_active_view(app, Access_ReadWriteVisible);
+    Buffer_ID buffer = view_get_buffer(app, view, Access_ReadWriteVisible);
+
+    i64 start_cursor_p = view_get_cursor_pos(app, view);
+    Dqn4Vim_MoveToNextToken(app);
+    i64 end_cursor_p = view_get_cursor_pos(app, view);
+
+    Range_i64 range     = {};
+    range.first         = start_cursor_p;
+    range.one_past_last = end_cursor_p;
+
+    buffer_replace_range(app, buffer, range, string_u8_empty);
+    Dqn4Vim_UseEditModeBindings(app);
 }
 
 FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
@@ -147,15 +191,21 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         // TODO(doyle): Better delete mode
         Bind(delete_line, KeyCode_D);
         Bind(delete_char, KeyCode_X);
-
+        Bind(copy, KeyCode_Y);
+        Bind(paste, KeyCode_P);
+        Bind(set_mark, KeyCode_T);
+        Bind(save, KeyCode_S, KeyCode_Control);
         Bind(interactive_open_or_new, KeyCode_O, KeyCode_Control);
+
         Bind(Dqn4Vim_NewLineThenEditMode, KeyCode_O);
+        Bind(Dqn4Vim_PrependNewLineThenEditMode, KeyCode_O, KeyCode_Shift);
         Bind(Dqn4Vim_UseEditModeBindings, KeyCode_I);
         Bind(Dqn4Vim_AppendOneAfterCursor, KeyCode_A);
+        Bind(Dqn4Vim_ReplaceAtCursorThenEditMode, KeyCode_S);
+Bind(Dqn4Vim_UseLowerCKeyModeBindings, KeyCode_C);
 
         Bind(Dqn4Vim_MoveToNextToken, KeyCode_W);
         Bind(Dqn4Vim_MoveToPreviousToken, KeyCode_B);
-
         Bind(Dqn4Vim_MoveToStartOfLine, KeyCode_6, KeyCode_Shift);
         Bind(Dqn4Vim_MoveToEndOfLine, KeyCode_4, KeyCode_Shift);
 
@@ -177,6 +227,7 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         ParentMap(mapid_global);
         Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_Escape);
         Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_CapsLock);
+        Bind(backspace_char, KeyCode_Backspace);
 
         // NOTE: Copied from setup_default_mapping
         BindTextInput(write_text_and_auto_indent);
@@ -209,6 +260,14 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(open_file_in_quotes,        KeyCode_1, KeyCode_Alt);
         Bind(open_matching_file_cpp,     KeyCode_2, KeyCode_Alt);
         Bind(write_zero_struct,          KeyCode_0, KeyCode_Control);
+    }
+
+    SelectMap(Dqn4Coder_MappingID_VimLowerCKeyModifierMode);
+    {
+        ParentMap(mapid_global);
+        Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_Escape);
+        Bind(Dqn4Vim_UseNormalModeBindings, KeyCode_CapsLock);
+        Bind(Dqn4Vim_DeleteToNextTokenThenEditMode, KeyCode_W);
     }
 }
 
