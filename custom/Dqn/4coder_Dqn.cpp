@@ -11,7 +11,6 @@
 
 // NOTE(allen): Users can declare their own managed IDs here.
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalMode);
-CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordC);
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordD);
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordT);
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordF);
@@ -23,7 +22,6 @@ i64 Dqn4Coder_MappingID_VimEditMode = 0;
 #define LOCAL_PERSIST static
 #define CAST(x) (x)
 
-enum struct VimCoreChordModifier { None, I, T };
 struct VimCore
 {
     b32 normal_mode;
@@ -31,11 +29,6 @@ struct VimCore
     {
         b32 shift_modifier;
     } f_chord;
-
-    struct
-    {
-        VimCoreChordModifier modifier;
-    } chord;
 };
 
 struct Core
@@ -50,7 +43,6 @@ FILE_SCOPE Core core;
 FILE_SCOPE b32 Dqn4Coder__MappingIDIsVimChord(Command_Map_ID id)
 {
     b32 result =
-        id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordC ||
         id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordD ||
         id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordF ||
         id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordT;
@@ -81,28 +73,23 @@ FILE_SCOPE void Dqn4Coder_SetCurrentMapping(Application_Links *app, Command_Map_
     core.curr_mapping_id = map_id;
     core.vim.normal_mode = map_id == CAST(Command_Map_ID) Dqn4Coder_MappingID_VimNormalMode;
 
-    if (core.vim.normal_mode || Dqn4Coder__MappingIDIsVimChord(*map_id_ptr))
+    if (core.vim.normal_mode)
     {
-        if (core.vim.normal_mode)
+        if (core.history_group_started)
         {
-            if (core.history_group_started)
-            {
-                history_group_end(core.history_group);
-                core.history_group_started = false;
-            }
+            history_group_end(core.history_group);
+            core.history_group_started = false;
         }
-        else
-        {
-            if (!core.history_group_started)
-            {
-                core.history_group_started = true;
-                core.history_group         = history_group_begin(app, *buffer_id);
-            }
-        }
+
         Dqn4Coder_SetCursorColour(app, 0xFFFF0000 /*ARGB*/);
     }
     else
     {
+        if (!core.history_group_started)
+        {
+            core.history_group_started = true;
+            core.history_group         = history_group_begin(app, *buffer_id);
+        }
         Dqn4Coder_SetCursorColour(app, 0xFF00FF00 /*ARGB*/);
     }
 }
@@ -117,12 +104,6 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_EditModeMappings)
 CUSTOM_DOC("Use Vim edit mode key-bindings")
 {
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimEditMode, nullptr /*buffer_id*/);
-}
-
-CUSTOM_COMMAND_SIG(Dqn4Vim_ChordC)
-CUSTOM_DOC("Use Vim normal mode, bindings when c is pressed.")
-{
-    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordC, nullptr);
 }
 
 CUSTOM_COMMAND_SIG(Dqn4Vim_MoveToPreviousToken)
@@ -236,120 +217,11 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordFTextInput)
     Dqn4Vim_NormalModeMappings(app);
 }
 
-CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
-{
-    User_Input user_input = get_current_input(app);
-    String_Const_u8 input = to_writable(&user_input);
-
-    View_ID view     = get_active_view(app, Access_ReadVisible);
-    Buffer_ID buffer = view_get_buffer(app, view, Access_ReadWriteVisible);
-    char ch          = character_to_lower(input.str[0]);
-
-    using ChordModifier = VimCoreChordModifier;
-    if (core.vim.chord.modifier == ChordModifier::None)
-    {
-        if (ch == 'i')
-        {
-            core.vim.chord.modifier = ChordModifier::I;
-        }
-        else if (ch == 't')
-        {
-            core.vim.chord.modifier = ChordModifier::T;
-        }
-        else if (ch == 'w')
-        {
-            Dqn4Vim_DeleteToNextToken(app);
-            if (core.curr_mapping_id == Dqn4Coder_MappingID_VimChordC)
-                Dqn4Vim_EditModeMappings(app);
-        }
-        else
-        {
-            Dqn4Vim_NormalModeMappings(app);
-        }
-    }
-    else
-    {
-        b32 chord_handled = true;
-        switch(core.vim.chord.modifier)
-        {
-            case ChordModifier::T:
-            {
-                i64 start_pos = view_get_cursor_pos(app, view);
-                i64 find_pos  = 0;
-                seek_string_forward(app, buffer, start_pos, 0 /*end*/, input, &find_pos);
-
-                Range_i64 range     = {};
-                range.first         = start_pos;
-                range.one_past_last = find_pos;
-                buffer_replace_range(app, buffer, range, string_u8_empty);
-                if (core.curr_mapping_id == Dqn4Coder_MappingID_VimChordC)
-                    Dqn4Vim_EditModeMappings(app);
-            }
-            break;
-
-            case ChordModifier::I:
-            {
-                if (ch == '(' || ch == ')' ||
-                    ch == '{' || ch == '}' ||
-                    ch == '<' || ch == '>' ||
-                    ch == '[' || ch == ']' ||
-                    ch == '"' || ch == '\''
-                   )
-                {
-                    i64 cursor_p = view_get_cursor_pos(app, view);
-                    i64 end      = buffer_get_size(app, buffer);
-
-                    char search_pair[2] = {};
-                    switch(ch)
-                    {
-                        case '(': case ')': search_pair[0] = '('; search_pair[1] = ')'; break;
-                        case '{': case '}': search_pair[0] = '{'; search_pair[1] = '}'; break;
-                        case '<': case '>': search_pair[0] = '<'; search_pair[1] = '>'; break;
-                        case '[': case ']': search_pair[0] = '['; search_pair[1] = ']'; break;
-                        case '"': case '\'': search_pair[0] = ch;  search_pair[1] = ch; break;
-                        default: InvalidPath;
-                    }
-
-                    i64 start_p = 0, end_p = 0;
-                    seek_string_backward(app, buffer, cursor_p, 0 /*min*/, SCu8(&search_pair[0], 1), &start_p);
-                    seek_string_forward(app, buffer, cursor_p, end, SCu8(&search_pair[1], 1), &end_p);
-
-                    if (start_p == -1 || end_p == end)
-                    {
-                        // NOTE: Failed to find enclosing pairs, just do nothing
-                    }
-                    else
-                    {
-                        Range_i64 range = {start_p + 1, end_p};
-                        buffer_replace_range(app, buffer, range, string_u8_empty);
-                        if (core.curr_mapping_id == Dqn4Coder_MappingID_VimChordC)
-                            Dqn4Vim_EditModeMappings(app);
-                    }
-                }
-                else
-                {
-                    chord_handled = false;
-                }
-            }
-            break;
-        }
-
-        if (!chord_handled)
-            Dqn4Vim_NormalModeMappings(app);
-        core.vim.chord.modifier = ChordModifier::None;
-    }
-}
-
 // -------------------------------------------------------------------------------------------------
 //
 // Dqn4Vim: Select Chord Mappings
 //
 // -------------------------------------------------------------------------------------------------
-CUSTOM_COMMAND_SIG(Dqn4Vim_ChordD)
-{
-    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordD, nullptr /*buffer_id*/);
-}
-
 CUSTOM_COMMAND_SIG(Dqn4Vim_ChordT)
 {
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordT, nullptr /*buffer_id*/);
@@ -361,6 +233,118 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordF)
     Input_Modifier_Set mods         = system_get_keyboard_modifiers(scratch);
     core.vim.f_chord.shift_modifier = has_modifier(&mods, KeyCode_Shift);
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordF, nullptr /*buffer_id*/);
+}
+
+FILE_SCOPE void Dqn4Vim__ChordCOrD(Application_Links *app, b32 c_chord)
+{
+    Assert(core.curr_mapping_id == Dqn4Coder_MappingID_VimNormalMode);
+    // NOTE: We activate Edit Mode mappings early to start recording the edit history into one batch.
+    if (c_chord)
+        Dqn4Vim_EditModeMappings(app);
+
+    b32 handled = true;
+    User_Input user_input = get_next_input(app, EventProperty_TextInsert, EventProperty_Escape);
+    if (user_input.abort)
+    {
+        handled = false;
+    }
+    else
+    {
+        String_Const_u8 input = to_writable(&user_input);
+        View_ID view          = get_active_view(app, Access_ReadVisible);
+        Buffer_ID buffer      = view_get_buffer(app, view, Access_ReadWriteVisible);
+        char ch               = character_to_lower(input.str[0]);
+
+        if (ch == 'i' || ch == 't')
+        {
+            User_Input next_user_input = get_next_input(app, EventProperty_TextInsert, EventProperty_Escape);
+            if (next_user_input.abort)
+            {
+                handled = false;
+            }
+            else
+            {
+                String_Const_u8 next_input = to_writable(&next_user_input);
+                char next_ch               = next_input.str[0];
+                switch(ch)
+                {
+                    case 't':
+                    {
+                        i64 start_pos = view_get_cursor_pos(app, view);
+                        i64 find_pos  = 0;
+                        seek_string_forward(app, buffer, start_pos, 0 /*end*/, next_input, &find_pos);
+
+                        Range_i64 range     = {};
+                        range.first         = start_pos;
+                        range.one_past_last = find_pos;
+                        buffer_replace_range(app, buffer, range, string_u8_empty);
+                    }
+                    break;
+
+                    case 'i':
+                    {
+                        if (next_ch == '(' || next_ch == ')' ||
+                            next_ch == '{' || next_ch == '}' ||
+                            next_ch == '<' || next_ch == '>' ||
+                            next_ch == '[' || next_ch == ']' ||
+                            next_ch == '"' || next_ch == '\''
+                           )
+                        {
+                            i64 cursor_p = view_get_cursor_pos(app, view);
+                            i64 end      = buffer_get_size(app, buffer);
+
+                            char search_pair[2] = {};
+                            switch(next_ch)
+                            {
+                                case '(': case ')': search_pair[0] = '('; search_pair[1] = ')'; break;
+                                case '{': case '}': search_pair[0] = '{'; search_pair[1] = '}'; break;
+                                case '<': case '>': search_pair[0] = '<'; search_pair[1] = '>'; break;
+                                case '[': case ']': search_pair[0] = '['; search_pair[1] = ']'; break;
+                                case '"': case '\'': search_pair[0] = next_ch;  search_pair[1] = next_ch; break;
+                                default: InvalidPath;
+                            }
+
+                            i64 start_p = 0, end_p = 0;
+                            seek_string_backward(app, buffer, cursor_p, 0 /*min*/, SCu8(&search_pair[0], 1), &start_p);
+                            seek_string_forward(app, buffer, cursor_p, end, SCu8(&search_pair[1], 1), &end_p);
+
+                            if (start_p == -1 || end_p == end)
+                            {
+                                // NOTE: Failed to find enclosing pairs, just do nothing
+                                handled = false;
+                            }
+                            else
+                            {
+                                Range_i64 range = {start_p + 1, end_p};
+                                buffer_replace_range(app, buffer, range, string_u8_empty);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else if (ch == 'w')
+        {
+            Dqn4Vim_DeleteToNextToken(app);
+        }
+        else
+        {
+            InvalidPath;
+        }
+    }
+
+    if (!handled && c_chord)
+        Dqn4Vim_NormalModeMappings(app);
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_ChordC)
+{
+    Dqn4Vim__ChordCOrD(app, true /*c_chord*/);
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_ChordD)
+{
+    Dqn4Vim__ChordCOrD(app, false /*c_chord*/);
 }
 
 FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
@@ -410,8 +394,8 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(Dqn4Vim_MoveToEndOfLine,     KeyCode_4, KeyCode_Shift);
 
         // NOTE: Chords
-        Bind(Dqn4Vim_ChordD, KeyCode_D);
         Bind(Dqn4Vim_ChordC, KeyCode_C);
+        Bind(Dqn4Vim_ChordD, KeyCode_D);
         Bind(Dqn4Vim_ChordF, KeyCode_F);
         Bind(Dqn4Vim_ChordF, KeyCode_F, KeyCode_Shift);
 
@@ -466,22 +450,6 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(open_file_in_quotes,        KeyCode_1, KeyCode_Alt);
         Bind(open_matching_file_cpp,     KeyCode_2, KeyCode_Alt);
         Bind(write_zero_struct,          KeyCode_0, KeyCode_Control);
-    }
-
-    SelectMap(Dqn4Coder_MappingID_VimChordD);
-    {
-        ParentMap(mapid_global);
-        Bind(Dqn4Vim_NormalModeMappings, KeyCode_Escape);
-        Bind(Dqn4Vim_NormalModeMappings, KeyCode_CapsLock);
-        BindTextInput(Dqn4Vim_ChordTextInput);
-    }
-
-    SelectMap(Dqn4Coder_MappingID_VimChordC);
-    {
-        ParentMap(mapid_global);
-        Bind(Dqn4Vim_NormalModeMappings, KeyCode_Escape);
-        Bind(Dqn4Vim_NormalModeMappings, KeyCode_CapsLock);
-        BindTextInput(Dqn4Vim_ChordTextInput);
     }
 
     SelectMap(Dqn4Coder_MappingID_VimChordF);
