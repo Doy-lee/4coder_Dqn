@@ -188,13 +188,6 @@ CUSTOM_DOC("Delete from the current cursor to the next token.")
     buffer_replace_range(app, buffer, range, string_u8_empty);
 }
 
-CUSTOM_COMMAND_SIG(Dqn4Vim_DeleteToNextTokenThenEditMode)
-CUSTOM_DOC("Delete from the current to the next token then enter edit mode.")
-{
-    Dqn4Vim_DeleteToNextToken(app);
-    Dqn4Vim_EditModeMappings(app);
-}
-
 CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
 {
     User_Input user_input = get_current_input(app);
@@ -257,8 +250,7 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
                     ch == '{' || ch == '}' ||
                     ch == '<' || ch == '>' ||
                     ch == '[' || ch == ']' ||
-                    ch == '"' || ch == '"' ||
-                    ch == ''' || ch == '''
+                    ch == '"' || ch == '\''
                    )
                 {
                     i64 cursor_p = view_get_cursor_pos(app, view);
@@ -271,7 +263,7 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
                         case '{': case '}': search_pair[0] = '{'; search_pair[1] = '}'; break;
                         case '<': case '>': search_pair[0] = '<'; search_pair[1] = '>'; break;
                         case '[': case ']': search_pair[0] = '['; search_pair[1] = ']'; break;
-                        case '"': case ''': search_pair[0] = ch;  search_pair[1] = ch; break;
+                        case '"': case '\'': search_pair[0] = ch;  search_pair[1] = ch; break;
                         default: InvalidPath;
                     }
 
@@ -293,7 +285,7 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
                 }
                 else
                 {
-                    handled = false;
+                    chord_handled = false;
                 }
             }
             break;
