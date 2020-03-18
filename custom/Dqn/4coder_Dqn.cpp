@@ -14,6 +14,7 @@ CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalMode);
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordC);
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordD);
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordT);
+CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordF);
 i64 Dqn4Coder_MappingID_VimEditMode = 0;
 
 #include "generated/managed_id_metadata.cpp"
@@ -22,9 +23,25 @@ i64 Dqn4Coder_MappingID_VimEditMode = 0;
 #define LOCAL_PERSIST static
 #define CAST(x) (x)
 
+enum struct VimCoreChordModifier { None, I, T };
+struct VimCore
+{
+    b32 normal_mode;
+    struct
+    {
+        b32 shift_modifier;
+    } f_chord;
+
+    struct
+    {
+        VimCoreChordModifier modifier;
+    } chord;
+};
+
 struct Core
 {
-    b32           normal_mode;
+    u64           curr_mapping_id;
+    VimCore       vim;
     History_Group history_group;
     b32           history_group_started;
 };
@@ -35,6 +52,7 @@ FILE_SCOPE b32 Dqn4Coder__MappingIDIsVimChord(Command_Map_ID id)
     b32 result =
         id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordC ||
         id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordD ||
+        id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordF ||
         id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordT;
     return result;
 }
@@ -59,11 +77,13 @@ FILE_SCOPE void Dqn4Coder_SetCurrentMapping(Application_Links *app, Command_Map_
     Managed_Scope scope        = buffer_get_managed_scope(app, *buffer_id);
     Command_Map_ID *map_id_ptr = scope_attachment(app, scope, buffer_map_id, Command_Map_ID);
     *map_id_ptr                = map_id;
-    core.normal_mode           = map_id == CAST(Command_Map_ID)Dqn4Coder_MappingID_VimNormalMode;
 
-    if (core.normal_mode || Dqn4Coder__MappingIDIsVimChord(*map_id_ptr))
+    core.curr_mapping_id = map_id;
+    core.vim.normal_mode = map_id == CAST(Command_Map_ID) Dqn4Coder_MappingID_VimNormalMode;
+
+    if (core.vim.normal_mode || Dqn4Coder__MappingIDIsVimChord(*map_id_ptr))
     {
-        if (core.normal_mode)
+        if (core.vim.normal_mode)
         {
             if (core.history_group_started)
             {
@@ -188,35 +208,58 @@ CUSTOM_DOC("Delete from the current cursor to the next token.")
     buffer_replace_range(app, buffer, range, string_u8_empty);
 }
 
+CUSTOM_COMMAND_SIG(Dqn4Vim_ChordFTextInput)
+{
+    User_Input user_input = get_current_input(app);
+    String_Const_u8 input = to_writable(&user_input);
+    View_ID view          = get_active_view(app, Access_ReadVisible);
+    Buffer_ID buffer      = view_get_buffer(app, view, Access_ReadWriteVisible);
+
+    Scratch_Block scratch(app);
+    Input_Modifier_Set mods = system_get_keyboard_modifiers(scratch);
+    i64 cursor_p            = view_get_cursor_pos(app, view);
+    i64 end                 = 0;
+    i64 match_p             = 0;
+    if (core.vim.f_chord.shift_modifier) // Search backwards
+    {
+        end = -1;
+        seek_string_backward(app, buffer, cursor_p, end, input, &match_p);
+    }
+    else
+    {
+        end = buffer_get_size(app, buffer);
+        seek_string_forward(app, buffer, cursor_p, end, input, &match_p);
+    }
+
+    if (match_p != end)
+        view_set_cursor(app, view, seek_pos(match_p));
+    Dqn4Vim_NormalModeMappings(app);
+}
+
 CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
 {
     User_Input user_input = get_current_input(app);
     String_Const_u8 input = to_writable(&user_input);
-    Assert(input.size > 0);
 
-    enum struct ChordModifier { None, I, T, };
-    LOCAL_PERSIST ChordModifier chord_modifier = ChordModifier::None;
-    View_ID view                               = get_active_view(app, Access_ReadVisible);
-    Buffer_ID buffer                           = view_get_buffer(app, view, Access_ReadWriteVisible);
-    char ch                                    = character_to_lower(input.str[0]);
+    View_ID view     = get_active_view(app, Access_ReadVisible);
+    Buffer_ID buffer = view_get_buffer(app, view, Access_ReadWriteVisible);
+    char ch          = character_to_lower(input.str[0]);
 
-    Managed_Scope scope         = buffer_get_managed_scope(app, buffer);
-    Command_Map_ID *curr_map_id = scope_attachment(app, scope, buffer_map_id, Command_Map_ID);
-
-    if (chord_modifier == ChordModifier::None)
+    using ChordModifier = VimCoreChordModifier;
+    if (core.vim.chord.modifier == ChordModifier::None)
     {
         if (ch == 'i')
         {
-            chord_modifier = ChordModifier::I;
+            core.vim.chord.modifier = ChordModifier::I;
         }
         else if (ch == 't')
         {
-            chord_modifier = ChordModifier::T;
+            core.vim.chord.modifier = ChordModifier::T;
         }
         else if (ch == 'w')
         {
             Dqn4Vim_DeleteToNextToken(app);
-            if (*curr_map_id == CAST(Command_Map_ID)Dqn4Coder_MappingID_VimChordC)
+            if (core.curr_mapping_id == Dqn4Coder_MappingID_VimChordC)
                 Dqn4Vim_EditModeMappings(app);
         }
         else
@@ -227,7 +270,7 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
     else
     {
         b32 chord_handled = true;
-        switch(chord_modifier)
+        switch(core.vim.chord.modifier)
         {
             case ChordModifier::T:
             {
@@ -239,7 +282,7 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
                 range.first         = start_pos;
                 range.one_past_last = find_pos;
                 buffer_replace_range(app, buffer, range, string_u8_empty);
-                if (*curr_map_id == CAST(Command_Map_ID)Dqn4Coder_MappingID_VimChordC)
+                if (core.curr_mapping_id == Dqn4Coder_MappingID_VimChordC)
                     Dqn4Vim_EditModeMappings(app);
             }
             break;
@@ -279,7 +322,7 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
                     {
                         Range_i64 range = {start_p + 1, end_p};
                         buffer_replace_range(app, buffer, range, string_u8_empty);
-                        if (*curr_map_id == CAST(Command_Map_ID) Dqn4Coder_MappingID_VimChordC)
+                        if (core.curr_mapping_id == Dqn4Coder_MappingID_VimChordC)
                             Dqn4Vim_EditModeMappings(app);
                     }
                 }
@@ -293,7 +336,7 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordTextInput)
 
         if (!chord_handled)
             Dqn4Vim_NormalModeMappings(app);
-        chord_modifier = ChordModifier::None;
+        core.vim.chord.modifier = ChordModifier::None;
     }
 }
 
@@ -310,6 +353,14 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordD)
 CUSTOM_COMMAND_SIG(Dqn4Vim_ChordT)
 {
     Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordT, nullptr /*buffer_id*/);
+}
+
+CUSTOM_COMMAND_SIG(Dqn4Vim_ChordF)
+{
+    Scratch_Block scratch(app);
+    Input_Modifier_Set mods         = system_get_keyboard_modifiers(scratch);
+    core.vim.f_chord.shift_modifier = has_modifier(&mods, KeyCode_Shift);
+    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordF, nullptr /*buffer_id*/);
 }
 
 FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
@@ -361,6 +412,8 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         // NOTE: Chords
         Bind(Dqn4Vim_ChordD, KeyCode_D);
         Bind(Dqn4Vim_ChordC, KeyCode_C);
+        Bind(Dqn4Vim_ChordF, KeyCode_F);
+        Bind(Dqn4Vim_ChordF, KeyCode_F, KeyCode_Shift);
 
         // TODO(doyle): Changing panels should really be moving to the split in
         // the direction of the home movement keys. Not just cycling through all
@@ -430,6 +483,14 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(Dqn4Vim_NormalModeMappings, KeyCode_CapsLock);
         BindTextInput(Dqn4Vim_ChordTextInput);
     }
+
+    SelectMap(Dqn4Coder_MappingID_VimChordF);
+    {
+        ParentMap(mapid_global);
+        Bind(Dqn4Vim_NormalModeMappings, KeyCode_Escape);
+        Bind(Dqn4Vim_NormalModeMappings, KeyCode_CapsLock);
+        BindTextInput(Dqn4Vim_ChordFTextInput);
+    }
 }
 
 void Dqn4Coder_DrawFileBar(Application_Links *app, View_ID view_id, Buffer_ID buffer, Face_ID face_id, Rect_f32 bar)
@@ -485,7 +546,7 @@ void Dqn4Coder_DrawFileBar(Application_Links *app, View_ID view_id, Buffer_ID bu
     }
 
     push_fancy_string(scratch, &list, base_color, string_u8_litexpr(" - "));
-    push_fancy_string(scratch, &list, base_color, core.normal_mode ? string_u8_litexpr("NORMAL Mode") : string_u8_litexpr("EDIT Mode"));
+    push_fancy_string(scratch, &list, base_color, core.vim.normal_mode ? string_u8_litexpr("NORMAL Mode") : string_u8_litexpr("EDIT Mode"));
 
     Vec2_f32 p = bar.p0 + V2f32(2.f, 2.f);
     draw_fancy_line(app, face_id, fcolor_zero(), &list, p);
