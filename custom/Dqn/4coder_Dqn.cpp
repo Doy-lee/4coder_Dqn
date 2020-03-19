@@ -11,9 +11,6 @@
 
 // NOTE(allen): Users can declare their own managed IDs here.
 CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimNormalMode);
-CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordD);
-CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordT);
-CUSTOM_ID(command_map, Dqn4Coder_MappingID_VimChordF);
 i64 Dqn4Coder_MappingID_VimEditMode = 0;
 
 #include "generated/managed_id_metadata.cpp"
@@ -39,15 +36,6 @@ struct Core
     b32           history_group_started;
 };
 FILE_SCOPE Core core;
-
-FILE_SCOPE b32 Dqn4Coder__MappingIDIsVimChord(Command_Map_ID id)
-{
-    b32 result =
-        id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordD ||
-        id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordF ||
-        id == (Command_Map_ID)Dqn4Coder_MappingID_VimChordT;
-    return result;
-}
 
 FILE_SCOPE void Dqn4Coder_SetCursorColour(Application_Links *app, int colour)
 {
@@ -189,19 +177,30 @@ CUSTOM_DOC("Delete from the current cursor to the next token.")
     buffer_replace_range(app, buffer, range, string_u8_empty);
 }
 
-CUSTOM_COMMAND_SIG(Dqn4Vim_ChordFTextInput)
+// -------------------------------------------------------------------------------------------------
+//
+// Dqn4Vim: Select Chord Mappings
+//
+// -------------------------------------------------------------------------------------------------
+CUSTOM_COMMAND_SIG(Dqn4Vim_ChordF)
 {
-    User_Input user_input = get_current_input(app);
+    Assert(core.curr_mapping_id == Dqn4Coder_MappingID_VimNormalMode);
+
+    Scratch_Block scratch(app);
+    Input_Modifier_Set mods = system_get_keyboard_modifiers(scratch);
+
+    User_Input user_input = get_next_input(app, EventProperty_TextInsert, EventProperty_Escape);
+    if (user_input.abort)
+        return;
+
     String_Const_u8 input = to_writable(&user_input);
     View_ID view          = get_active_view(app, Access_ReadVisible);
     Buffer_ID buffer      = view_get_buffer(app, view, Access_ReadWriteVisible);
 
-    Scratch_Block scratch(app);
-    Input_Modifier_Set mods = system_get_keyboard_modifiers(scratch);
-    i64 cursor_p            = view_get_cursor_pos(app, view);
-    i64 end                 = 0;
-    i64 match_p             = 0;
-    if (core.vim.f_chord.shift_modifier) // Search backwards
+    i64 cursor_p = view_get_cursor_pos(app, view);
+    i64 end      = 0;
+    i64 match_p  = 0;
+    if (has_modifier(&mods, KeyCode_Shift)) // Search backwards
     {
         end = -1;
         seek_string_backward(app, buffer, cursor_p, end, input, &match_p);
@@ -214,25 +213,6 @@ CUSTOM_COMMAND_SIG(Dqn4Vim_ChordFTextInput)
 
     if (match_p != end)
         view_set_cursor(app, view, seek_pos(match_p));
-    Dqn4Vim_NormalModeMappings(app);
-}
-
-// -------------------------------------------------------------------------------------------------
-//
-// Dqn4Vim: Select Chord Mappings
-//
-// -------------------------------------------------------------------------------------------------
-CUSTOM_COMMAND_SIG(Dqn4Vim_ChordT)
-{
-    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordT, nullptr /*buffer_id*/);
-}
-
-CUSTOM_COMMAND_SIG(Dqn4Vim_ChordF)
-{
-    Scratch_Block scratch(app);
-    Input_Modifier_Set mods         = system_get_keyboard_modifiers(scratch);
-    core.vim.f_chord.shift_modifier = has_modifier(&mods, KeyCode_Shift);
-    Dqn4Coder_SetCurrentMapping(app, Dqn4Coder_MappingID_VimChordF, nullptr /*buffer_id*/);
 }
 
 FILE_SCOPE void Dqn4Vim__ChordCOrD(Application_Links *app, b32 c_chord)
@@ -450,14 +430,6 @@ FILE_SCOPE void Dqn4Coder_SetDefaultMappings(Mapping *mapping)
         Bind(open_file_in_quotes,        KeyCode_1, KeyCode_Alt);
         Bind(open_matching_file_cpp,     KeyCode_2, KeyCode_Alt);
         Bind(write_zero_struct,          KeyCode_0, KeyCode_Control);
-    }
-
-    SelectMap(Dqn4Coder_MappingID_VimChordF);
-    {
-        ParentMap(mapid_global);
-        Bind(Dqn4Vim_NormalModeMappings, KeyCode_Escape);
-        Bind(Dqn4Vim_NormalModeMappings, KeyCode_CapsLock);
-        BindTextInput(Dqn4Vim_ChordFTextInput);
     }
 }
 
