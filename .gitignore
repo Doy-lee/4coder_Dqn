@@ -4,7 +4,6 @@
 *.dll
 *.so
 4ed
-build*.sh
 bin
 tags
 
